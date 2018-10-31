@@ -1,0 +1,377 @@
+---
+title: "Homework 06"
+subtitle: "Simulation"
+author: "Xinyi Wang"
+date: "October 24, 2018"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,out.width="0.9\\linewidth",dev="pdf",fig.align  = 'center')
+pacman::p_load(
+  "ggplot2",
+  "knitr",
+  "arm",
+  "data.table",
+  "foreign",
+  "car",
+  "faraway",
+  "nnet",
+  "reshape2",
+  "VGAM"
+)
+```
+
+
+# Discrete probability simulation: 
+
+suppose that a basketball player has a 60% chance of making a shot, and he keeps taking shots until he misses two in a row. Also assume his shots are independent (so that each shot has 60% probability of success, no matter what happened before).
+
+1. Write an R function to simulate this process.
+```{r}
+sim_shots<-function(){  
+    ee <- TRUE 
+    shots<- rbinom(1, 1, 0.6)  # First shot
+    i=1  
+    while( ee ) {   
+        i = i + 1    
+        ashot<- rbinom(1, 1, 0.6)  # A shot
+        if(shots[i-1]==0 && ashot==0){ 
+            ee=FALSE 
+        } 
+        shots <- c(shots,ashot)  
+    }  
+    return(shots)
+}
+```
+
+2. Put the R function in a loop to simulate the process 1000 times. Use the simulation to estimate the mean, standard deviation, and distribution of the total number of shots that the player will take.
+```{r}
+n_samp   <- 1000
+totshots <- rep(NA,n_samp)
+propshots<- rep(NA,n_samp)
+for(i in 1:n_samp){  
+    simshots    <- sim_shots()  
+    totshots[i] <- length(simshots)
+    propshots[i]<- mean(simshots)
+}
+hist(totshots)
+mean(totshots)
+sd(totshots)
+```
+
+3. Using your simulations, make a scatterplot of the number of shots the player will take and the proportion of shots that are successes.
+
+```{r}
+plot(totshots,propshots)
+```
+
+# Continuous probability simulation: 
+
+the logarithms of weights (in pounds) of men in the United States are approximately normally distributed with mean 5.13 and standard deviation 0.17; women with mean 4.96 and standard deviation 0.20. Suppose 10 adults selected at random step on an elevator with a capacity of 1750 pounds. What is the probability that the elevator cable breaks?
+
+```{r}
+n_sim<-1000
+total_weight<- rep(NA,n_sim)
+for(i in 1:n_sim){  
+    male<- rbinom(10,1,0.49)  #Assume ratio between men and woman in US is about 0.49:0.51
+    male_weight<-rnorm(sum(male),5.13,0.17)  
+    nfem <- 10-sum(male);  
+    if(nfem>0){ 
+        female_weight<-rnorm(nfem,4.96,0.2)
+    }
+    else { 
+        female_weight<-0
+    }  
+    total_weight[i]<-sum(c(exp(male_weight),exp(female_weight)))
+}
+hist(total_weight)
+mean(total_weight>1750)
+```
+
+
+# Predictive simulation for linear regression: 
+
+take one of the models from previous excessive that predicts course evaluations from beauty and other input variables. You will do some simulations.
+
+
+```{r}
+prof <- read.csv("http://www.stat.columbia.edu/~gelman/arm/examples/beauty/ProfEvaltnsBeautyPublic.csv")
+
+# convert into factors
+prof$profnumber <- as.factor(prof$profnumber)
+prof$female <- as.factor(prof$female)
+
+# convert dummy `class*` variables into a factor
+dummies <- prof[, 18:47]
+prof$class <- factor(apply(dummies, FUN=function(r) r %*% 1:30, MARGIN=1))
+
+# remove dummy variables
+prof <- prof[-c(18:47)]
+
+# normalise and centre professor evaluation (all other predictors are binary)
+prof$c.profevaluation <- prof$profevaluation - mean(prof$profevaluation) / (2 * sd(prof$profevaluation))
+```
+
+1. Instructor A is a 50-year-old woman who is a native English speaker and has a beauty score of 1. Instructor B is a 60-year-old man who is a native English speaker and has a beauty score of - .5. Simulate 1000 random draws of the course evaluation rating of these two instructors. In your simulation, account for the uncertainty in the regression parameters (that is, use the `sim()` function) as well as the predictive uncertainty.
+
+
+```{r}
+m1 <- lm(courseevaluation ~ btystdave + age + female + nonenglish, data = prof)
+simfit <- sim(m1, n.sims = 1000)
+# Instructor A, age=50, female=1, nonenglish=0, btystdave=1
+a <- simfit@coef[,1]*1 + simfit@coef[,2]*1 + simfit@coef[,3]*50 + simfit@coef[,4]*1 +
+ simfit@coef[,5]*0
+# Instructor B, age=60, female=0, nonenglish=0, btystdave=0
+b <- simfit@coef[,1]*1 + simfit@coef[,2]*(-0.5) + simfit@coef[,3]*60 +
+simfit@coef[,4]*0 + simfit@coef[,5]*0
+
+```
+
+2. Make a histogram of the difference between the course evaluations for A and B. What is the probability that A will have a higher evaluation?
+
+```{r}
+hist(a-b)
+#sum(ifelse(prof_a>prof_b,1,0))/1000
+mean(a>b)
+```
+
+
+# How many simulation draws are needed: 
+take the model from previous exercise that predicts course evaluations from beauty and other input variables. Use display() to summarize the model fit. Focus on the estimate and standard error for the coefficient of beauty.
+
+```{r}
+beauty <- read.csv("http://www.stat.columbia.edu/~gelman/arm/examples/beauty/ProfEvaltnsBeautyPublic.csv")
+
+```
+
+1. Use sim() with n.sims = 10000. Compute the mean and standard deviations of the 1000 simulations of the coefficient of beauty, and check that these are close to the output from display.
+```{r}
+simfit2 <- sim(m1, n.sims = 10000)
+mean(simfit2@coef[,2])
+sd(simfit2@coef[,2])
+display(m1)
+```
+
+Yes, they are close to the output from disaplay.
+
+2. Repeat with n.sims = 1000, n.sims = 100, and n.sims = 10. Do each of these a few times in order to get a sense of the simulation variability.
+```{r}
+# n.sim=1000
+mean(simfit@coef[,2])
+sd(simfit@coef[,2])
+
+# n.sim=100
+simfit3 <- sim(m1, n.sims=100)
+mean(simfit3@coef[,2])
+sd(simfit3@coef[,2])
+
+# n.sim=10
+simfit4 <- sim(m1, n.sims=10)
+mean(simfit4@coef[,2])
+sd(simfit4@coef[,2])
+
+display(m1)
+```
+
+3. How many simulations were needed to give a good approximation to the mean and standard error for the coefficient of beauty?
+
+1000 simulations are needed to give a good approximation,we can see both mean and sd are very close to the output from display.
+
+
+# Predictive simulation for linear regression: 
+using data of interest to you, fit a linear regression model. Use the output from this model to simulate a predictive distribution for observations with a particular combination of levels of all the predictors in the regression.
+
+```{r}
+# Using the Canadian Occupational Prestige dataset from Homework 1
+fox_data_dir<-"http://socserv.socsci.mcmaster.ca/jfox/Books/Applied-Regression-3E/datasets/"
+Prestige<-read.table(paste0(fox_data_dir,"Prestige.txt"))
+# Model
+m2 <- lm(prestige ~ education+income+women, data = Prestige)
+# Simulation 1000 times
+m2_sim <- sim(m2,n.sims=1000)
+# prediction: education=10, income=10000, percentage of women=30
+mypredict2 <- m2_sim@coef[,1]+m2_sim@coef[,2]*10+m2_sim@coef[,3]*10000+m2_sim@coef[,4]*30
+hist(mypredict2)
+```
+
+# Repeat the previous exercise using a logistic regression example.
+ 
+```{r}
+#data
+wells = read.table("http://www.stat.columbia.edu/~gelman/arm/examples/arsenic/wells.dat")
+wells_dt <- data.table(wells)
+#model
+m3 <- glm(switch ~ log(dist), family=binomial(link="logit"), data = wells_dt) 
+#simulation
+m3_sim <- sim(m3,n.sim=1000)
+#prediction: log(disc)=10
+mypredict3 <- m3_sim@coef[,1]+m3_sim@coef[,2]*10
+hist(mypredict3)
+```
+
+# Repeat the previous exercise using a Poisson regression example.
+
+```{r}
+#data
+risky_behaviors<-read.dta("http://www.stat.columbia.edu/~gelman/arm/examples/risky.behavior/risky_behaviors.dta")
+#model
+risky_behaviors$fupacts = round(risky_behaviors$fupacts)
+m4 <- glm(fupacts~couples+women_alone, data = risky_behaviors, family = poisson())
+#simulation
+m4_sim <- sim(m4, n.sims=1000)
+#prediciton: couples=0, women_alone=1
+mypredict4 <- m4_sim@coef[,1]+m4_sim@coef[,2]*0+m4_sim@coef[,3]*1
+hist(mypredict4)
+```
+
+
+# Inference for the ratio of parameters: 
+a (hypothetical) study compares the costs and effectiveness of two different medical treatments.
+- In the first part of the study, the difference in costs between treatments A and B is estimated at $600 per patient, with a standard error of $400, based on a regression with 50 degrees of freedom.
+- In the second part of the study, the difference in effectiveness is estimated at 3.0 (on some relevant measure), with a standard error of 1.0, based on a regression with 100 degrees of freedom.
+- For simplicity, assume that the data from the two parts of the study were collected independently.
+
+Inference is desired for the incremental cost-effectiveness ratio:
+the difference between the average costs of the two treatments, divided by the difference between their average effectiveness. (This problem is discussed further by Heitjan, Moskowitz, and Whang, 1999.)
+
+1. Create 1000 simulation draws of the cost difference and the effectiveness difference, and make a scatterplot of these draws.
+```{r}
+#cost difference mean=600,sd=400
+cost <- rnorm(1000, 600, 400)
+#effectiveness difference mean=3,sd=1
+effectiveness <- rnorm(1000,3,1)
+plot(cost,effectiveness)
+```
+
+2. Use simulation to come up with an estimate, 50% interval, and 95% interval for the incremental cost-effectiveness ratio.
+
+```{r}
+ratio <- cost/effectiveness
+# 50% interval
+quantile(ratio,c(0.25,0.75))
+# 95% interval
+quantile(ratio,c(0.025,0.975))
+```
+
+3. Repeat this problem, changing the standard error on the difference in effectiveness to 2.0.
+
+```{r}
+#effectiveness difference mean=3,sd=2
+effectiveness2 <- rnorm(1000,3,2)
+plot(cost,effectiveness2)
+ratio2 <- cost/effectiveness2
+# 50% interval
+quantile(ratio2,c(0.25,0.75))
+# 95% interval
+quantile(ratio2,c(0.025,0.975))
+```
+
+# Predictive checks: 
+
+using data of interest to you, fit a model of interest.
+1. Simulate replicated datasets and visually compare to the actual data.
+```{r}
+data(happy)
+m5 <- lm(happy ~ money, data = happy)
+m5_sim <- sim(m5, length(happy$money))
+mypredict5 <- m5_sim@coef[,2] * happy$money + m5_sim@coef[,1]
+plot(happy$happy, mypredict5)
+```
+
+2. Summarize the data by a numerical test statistic, and compare to the values of the test statistic in the replicated datasets.
+```{r}
+summary(happy$happy)
+summary(mypredict5)
+```
+
+
+# (optional) Propagation of uncertainty:
+
+we use a highly idealized setting to illustrate the use of simulations in combining uncertainties. Suppose a company changes its technology for widget production, and a study estimates the cost savings at $5 per unit, but with a standard error of $4. Furthermore, a forecast estimates the size of the market (that is, the number of widgets that will be sold) at 40,000, with a standard error of 10,000. Assuming these two sources of uncertainty are independent, use simulation to estimate the total amount of money saved by the new product (that is, savings per unit, multiplied by size of the market).
+
+```{r}
+
+```
+
+# (optional) Fitting the wrong model: 
+
+suppose you have 100 data points that arose from the following model: 
+$y = 3 + 0.1x_1 + 0.5x_2 + error$, with errors having a t distribution with mean 0, scale 5, and 4 degrees of freedom. We shall explore the implications of fitting a standard linear regression to these data.
+
+1. Simulate data from this model. For simplicity, suppose the values of `x_1` are simply the integers from 1 to 100, and that the values of `x_2` are random and equally likely to be 0 or 1.  In R, you can define `x_1 <- 1:100`, simulate `x_2` using `rbinom()`, then create the linear predictor, and finally simulate the random errors in `y` using the `rt()` function.  Fit a linear regression (with normal errors) to these data and see if the 68% confidence intervals for the regression coefficients (for each, the estimates ±1 standard error) cover the true values. 
+
+```{r}
+
+```
+
+2. Put the above step in a loop and repeat 1000 times. Calculate the confidence coverage for the 68% intervals for each of the three coefficients in the model. 
+
+```{r}
+
+```
+
+3. Repeat this simulation, but instead fit the model using t errors (use hett::tlm).
+
+```{r}
+
+
+```
+
+# (optional) Using simulation to check the fit of a time-series model: 
+
+find time-series data and fit a first-order autoregression model to it. Then use predictive simulation to check the fit of this model as in GH Section 8.4.
+
+
+# (optional) Model checking for count data: 
+the folder `risky.behavior` contains data from a study of behavior of couples at risk for HIV; 
+
+"sex" is a factor variable with labels "woman" and "man".  This is the
+member of the couple that reporting sex acts to the researcher
+
+The variables "couple" and "women_alone" code the intervention:
+
+ couple women_alone
+   0        0         control - no conselling
+   1        0         the couple was counselled together 
+   0        1         only the woman was counselled
+
+"bs_hiv" indicates whether the member reporting sex acts was
+HIV-positive at "baseline", that is, at the beginning of the study.
+
+"bupacts" - number of unprotected sex acts reportied at "baseline",
+that is, at the beginning of the study
+
+"fupacts" - number of unprotected sex acts reported at the end of the
+study (final report).
+
+```{r, echo=FALSE}
+risky_behaviors<-read.dta("http://www.stat.columbia.edu/~gelman/arm/examples/risky.behavior/risky_behaviors.dta")
+```
+
+1. Fit a Poisson regression model predicting number of unprotected sex acts from baseline HIV status. Perform predictive simulation to generate 1000 datasets and record both the percent of observations that are equal to 0 and the percent that are greater than 10 (the third quartile in the observed data) for each. Compare these values to the observed value in the original data.
+
+```{r}
+
+```
+
+2. Repeat (1) using an overdispersed Poisson regression model.
+
+```{r}
+# afunction to geneate from quasi poisson
+rqpois = function(n, lambda, phi) {
+  mu = lambda
+  k = mu/phi/(1-1/phi)
+  return(rnbinom(n, mu = mu, size = k))
+}
+# https://www.r-bloggers.com/generating-a-quasi-poisson-distribution-version-2/
+
+```
+
+3. Repeat (2), also including gender and baseline number of unprotected sex acts as input variables.
+
+```{r}
+
+```
